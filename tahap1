@@ -1,0 +1,66 @@
+  1	# Aplikasi Analisis Statistik Mini — R Shiny
+  2	# Instal paket (sekali saja):
+  3	# install.packages(c("shiny", "ggplot2", "readxl", "DT"))
+  4	# Jalankan: shiny::runApp("app.R")
+  5	
+  6	library(shiny)
+  7	library(ggplot2)
+  8	library(readxl)
+  9	library(DT)
+ 10	
+ 11	options(shiny.maxRequestSize = 20 * 1024^2) # Maksimum unggahan 20 MB
+ 12	
+ 13	ui <- fluidPage(
+ 14	  tags$head(tags$style(HTML("
+ 15	    body { background-color: #f7f9fc; }
+ 16	    .well { background-color: white; border: 1px solid #e5e9f0; border-radius: 12px; }
+ 17	    .tab-content { padding-top: 18px; }
+ 18	    .app-title { color: #15365b; font-weight: 700; }
+ 19	    .hint { color: #596779; font-size: 13px; }
+ 20	    .metric { background: #eef5ff; padding: 12px 16px; border-radius: 9px; margin: 6px 0; }
+ 21	    .metric strong { font-size: 21px; color: #15365b; }
+ 22	  "))),
+ 23	  titlePanel(span("📊 Statistik Mini — R Shiny", class = "app-title")),
+ 24	  p("Unggah data, eksplorasi statistik, visualisasikan, lalu unduh hasil analisis."),
+ 25	  sidebarLayout(
+ 26	    sidebarPanel(
+ 27	      fileInput("file", "1. Unggah dataset", accept = c(".csv", ".xlsx", ".xls")),
+ 28	      conditionalPanel(
+ 29	        condition = "input.file != null",
+ 30	        selectInput("separator", "Pemisah CSV", c("Koma (,)" = ",", "Titik koma (;)" = ";", "Tab" = "\t")),
+ 31	        selectInput("decimal", "Desimal CSV", c("Titik (.)" = ".", "Koma (,)" = ","))
+ 32	      ),
+ 33	      tags$p(class = "hint", "Format: CSV, XLSX, XLS. Untuk Excel, sheet pertama digunakan. Maksimum 20 MB."),
+ 34	      hr(),
+ 35	      uiOutput("variable_controls"),
+ 36	      hr(),
+ 37	      downloadButton("download_data", "Unduh data (CSV)", class = "btn-primary"),
+ 38	      br(), br(),
+ 39	      downloadButton("download_stats", "Unduh ringkasan (CSV)")
+ 40	    ),
+ 41	    mainPanel(
+ 42	      tabsetPanel(
+ 43	        tabPanel("Data & Ringkasan", br(), uiOutput("info_data"),
+ 44	                 h4("Pratinjau data"), DTOutput("preview"),
+ 45	                 h4("Statistik deskriptif (numerik)"), DTOutput("summary_stats"),
+ 46	                 h4("Jumlah nilai kosong per kolom"), DTOutput("missing_table")),
+ 47	        tabPanel("Visualisasi", br(),
+ 48	                 selectInput("chart_type", "Jenis grafik", c(
+ 49	                   "Histogram" = "hist", "Boxplot" = "box",
+ 50	                   "Diagram batang (kategori)" = "bar", "Scatter plot" = "scatter")),
+ 51	                 plotOutput("main_plot", height = "430px"),
+ 52	                 downloadButton("download_plot", "Unduh grafik (PNG)")),
+ 53	        tabPanel("Korelasi", br(),
+ 54	                 selectInput("cor_method", "Metode korelasi", c("Pearson" = "pearson", "Spearman" = "spearman")),
+ 55	                 h4("Heatmap korelasi variabel numerik"),
+ 56	                 plotOutput("cor_plot", height = "440px"),
+ 57	                 h4("Uji korelasi dua variabel"),
+ 58	                 verbatimTextOutput("cor_test")),
+ 59	        tabPanel("Regresi Linear", br(),
+ 60	                 p("Model regresi linear sederhana: Y ~ X."),
+ 61	                 verbatimTextOutput("reg_summary"),
+ 62	                 plotOutput("reg_plot", height = "400px"))
+ 63	      )
+ 64	    )
+ 65	  )
+ 66	)
