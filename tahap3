@@ -1,0 +1,124 @@
+Blok 3A — Visualisasi (baris 151–200)
+151	  plot_data <- reactive({
+152	    req(input$xvar, dataset())
+153	    dataset()
+154	  })
+155	
+156	  chart_ggplot <- reactive({
+157	    d <- plot_data()
+158	    x <- input$xvar
+159	    y <- input$yvar
+160	    kind <- input$chart_type
+161	    req(x, kind)
+162	    validate(need(x %in% names(d), "Pilih variabel X."))
+163	
+164	    if (kind == "hist") {
+165	      validate(need(is.numeric(d[[x]]), "Histogram memerlukan variabel X numerik."))
+166	      g <- ggplot(d, aes(x = .data[[x]])) +
+167	        geom_histogram(bins = 30, fill = "#2878b5", color = "white", na.rm = TRUE) +
+168	        labs(x = x, y = "Frekuensi", title = paste("Histogram", x))
+169	    } else if (kind == "box") {
+170	      validate(need(is.numeric(d[[x]]), "Boxplot memerlukan variabel X numerik."))
+171	      g <- ggplot(d, aes(y = .data[[x]])) +
+172	        geom_boxplot(fill = "#71bedb", na.rm = TRUE) +
+173	        labs(x = NULL, y = x, title = paste("Boxplot", x))
+174	    } else if (kind == "bar") {
+175	      counts <- sort(table(as.character(d[[x]]), useNA = "ifany"), decreasing = TRUE)
+176	      validate(need(length(counts) > 0, "Tidak ada data untuk grafik batang."))
+177	      counts <- head(counts, 25)
+178	      dc <- data.frame(Kategori = factor(names(counts), levels = rev(names(counts))),
+179	                       Jumlah = as.integer(counts))
+180	      g <- ggplot(dc, aes(x = Kategori, y = Jumlah)) +
+181	        geom_col(fill = "#2878b5") + coord_flip() +
+182	        labs(x = x, y = "Jumlah", title = paste("Frekuensi kategori:", x, "(maks. 25)"))
+183	    } else {
+184	      validate(need(nzchar(y) && y %in% names(d), "Pilih variabel Y numerik."),
+185	               need(is.numeric(d[[x]]) && is.numeric(d[[y]]), "Scatter plot membutuhkan X dan Y numerik."),
+186	               need(sum(complete.cases(d[, c(x, y), drop = FALSE])) >= 2, "Dibutuhkan setidaknya 2 pasangan data lengkap."))
+187	      g <- ggplot(d, aes(x = .data[[x]], y = .data[[y]])) +
+188	        geom_point(color = "#2878b5", alpha = 0.75, na.rm = TRUE) +
+189	        geom_smooth(method = "lm", se = TRUE, color = "#e07b39", na.rm = TRUE) +
+190	        labs(x = x, y = y, title = paste("Scatter plot:", x, "vs", y))
+191	    }
+192	    g + theme_minimal(base_size = 13)
+193	  })
+194	
+195	  output$main_plot <- renderPlot(chart_ggplot())
+196	
+197	  output$download_plot <- downloadHandler(
+198	    filename = function() paste0("grafik_", input$chart_type, ".png"),
+199	    content = function(file) ggplot2::ggsave(file, plot = chart_ggplot(), width = 9, height = 6, dpi = 160)
+200	  )
+Blok 3B — Korelasi (baris 202–241)
+202	  cor_matrix <- reactive({
+203	    d <- dataset()
+204	    nv <- numeric_vars()
+205	    validate(need(length(nv) >= 2, "Korelasi memerlukan minimal dua kolom numerik."))
+206	    keep <- nv[vapply(d[nv], function(z) sum(!is.na(z)) >= 3 &&
+207	                          is.finite(stats::sd(z, na.rm = TRUE)) && stats::sd(z, na.rm = TRUE) > 0, logical(1))]
+208	    validate(need(length(keep) >= 2, "Perlu minimal dua kolom numerik dengan variasi nilai dan >= 3 data terisi."))
+209	    cor(d[keep], use = "pairwise.complete.obs", method = input$cor_method)
+210	  })
+211	
+212	  output$cor_plot <- renderPlot({
+213	    m <- cor_matrix()
+214	    df <- as.data.frame(as.table(m))
+215	    names(df) <- c("X", "Y", "Korelasi")
+216	    ggplot(df, aes(x = X, y = Y, fill = Korelasi)) +
+217	      geom_tile(color = "white") +
+218	      geom_text(aes(label = ifelse(is.na(Korelasi), "NA", sprintf("%.2f", Korelasi))), size = 4) +
+219	      scale_fill_gradient2(low = "#cc4c4c", mid = "white", high = "#2878b5", midpoint = 0,
+220	                           limits = c(-1, 1), na.value = "grey90") +
+221	      labs(title = paste("Matriks Korelasi", tools::toTitleCase(input$cor_method)), x = NULL, y = NULL) +
+222	      theme_minimal(base_size = 12) + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+223	  })
+224	
+225	  pair_data <- reactive({
+226	    d <- dataset()
+227	    x <- input$xvar; y <- input$yvar
+228	    validate(need(!is.null(x) && !is.null(y) && nzchar(y), "Pilih X dan Y numerik."),
+229	             need(x %in% numeric_vars() && y %in% numeric_vars(), "X dan Y harus numerik."),
+230	             need(x != y, "X dan Y harus berbeda."))
+231	    df <- data.frame(x = d[[x]], y = d[[y]])
+232	    df <- df[complete.cases(df) & is.finite(df$x) & is.finite(df$y), , drop = FALSE]
+233	    validate(need(nrow(df) >= 3, "Dibutuhkan minimal 3 pasangan observasi lengkap."),
+234	             need(sd(df$x) > 0 && sd(df$y) > 0, "X dan Y harus memiliki variasi nilai."))
+235	    df
+236	  })
+237	
+238	  output$cor_test <- renderPrint({
+239	    d <- pair_data()
+240	    print(cor.test(d$x, d$y, method = input$cor_method, exact = FALSE))
+241	  })
+Blok 3C — Regresi, unduh data, dan penutup (baris 243–273)
+243	  reg_model <- reactive({
+244	    d <- pair_data()
+245	    lm(y ~ x, data = d)
+246	  })
+247	
+248	  output$reg_summary <- renderPrint({
+249	    cat("Variabel dependen (Y):", input$yvar, "\nVariabel independen (X):", input$xvar, "\n\n")
+250	    print(summary(reg_model()))
+251	  })
+252	
+253	  output$reg_plot <- renderPlot({
+254	    d <- pair_data()
+255	    ggplot(d, aes(x = x, y = y)) +
+256	      geom_point(color = "#2878b5", alpha = 0.75) +
+257	      geom_smooth(method = "lm", se = TRUE, color = "#e07b39") +
+258	      labs(title = "Regresi Linear Sederhana", x = input$xvar, y = input$yvar) +
+259	      theme_minimal(base_size = 13)
+260	  })
+261	
+262	  output$download_data <- downloadHandler(
+263	    filename = function() "dataset.csv",
+264	    content = function(file) write.csv(dataset(), file, row.names = FALSE, na = "")
+265	  )
+266	
+267	  output$download_stats <- downloadHandler(
+268	    filename = function() "ringkasan_statistik.csv",
+269	    content = function(file) write.csv(stats_data(), file, row.names = FALSE, na = "")
+270	  )
+271	}
+272	
+273	shinyApp(ui, server)
