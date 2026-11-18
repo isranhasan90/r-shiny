@@ -1,0 +1,82 @@
+68	server <- function(input, output, session) {
+ 69	  dataset <- reactive({
+ 70	    req(input$file)
+ 71	    ext <- tolower(tools::file_ext(input$file$name))
+ 72	    tryCatch({
+ 73	      if (ext == "csv") {
+ 74	        d <- read.csv(input$file$datapath,
+ 75	                      sep = if (is.null(input$separator)) "," else input$separator,
+ 76	                      dec = if (is.null(input$decimal)) "." else input$decimal,
+ 77	                      check.names = FALSE,
+ 78	                      stringsAsFactors = FALSE,
+ 79	                      fileEncoding = "UTF-8-BOM")
+ 80	      } else if (ext %in% c("xlsx", "xls")) {
+ 81	        d <- as.data.frame(readxl::read_excel(input$file$datapath, .name_repair = "unique"))
+ 82	      } else {
+ 83	        stop("Format file tidak didukung. Gunakan CSV, XLSX, atau XLS.")
+ 84	      }
+ 85	      if (!nrow(d) || !ncol(d)) stop("Dataset kosong atau tidak terbaca.")
+ 86	      names(d) <- make.unique(ifelse(is.na(names(d)) | !nzchar(names(d)), "Kolom", names(d)))
+ 87	      d
+ 88	    }, error = function(e) {
+ 89	      validate(need(FALSE, paste("Gagal membaca data:", conditionMessage(e))))
+ 90	    })
+ 91	  })
+ 92	
+ 93	  numeric_vars <- reactive(names(dataset())[vapply(dataset(), is.numeric, logical(1))])
+ 94	  all_vars <- reactive(names(dataset()))
+ 95	
+ 96	  output$variable_controls <- renderUI({
+ 97	    req(dataset())
+ 98	    nv <- numeric_vars()
+ 99	    av <- all_vars()
+100	    tagList(
+101	      tags$strong("2. Pilih variabel analisis"),
+102	      selectInput("xvar", "Variabel X", choices = av, selected = if (length(nv)) nv[1] else av[1]),
+103	      selectInput("yvar", "Variabel Y", choices = c("— Tidak dipilih —" = "", nv),
+104	                  selected = if (length(nv) >= 2) nv[2] else if (length(nv)) nv[1] else "")
+105	    )
+106	  })
+107	
+108	  output$info_data <- renderUI({
+109	    d <- dataset()
+110	    tags$div(class = "metric", HTML(sprintf(
+111	      "<strong>%s</strong> baris &nbsp; | &nbsp; <strong>%s</strong> kolom &nbsp; | &nbsp; <strong>%s</strong> nilai kosong",
+112	      format(nrow(d), big.mark = "."), ncol(d), sum(is.na(d))
+113	    )))
+114	  })
+115	
+116	  output$preview <- renderDT({
+117	    datatable(head(dataset(), 100), options = list(scrollX = TRUE, pageLength = 10), rownames = FALSE)
+118	  })
+119	
+120	  stats_data <- reactive({
+121	    d <- dataset()
+122	    nv <- numeric_vars()
+123	    if (!length(nv)) return(data.frame(Informasi = "Dataset tidak memiliki kolom numerik."))
+124	    do.call(rbind, lapply(nv, function(v) {
+125	      z <- d[[v]]
+126	      valid <- z[!is.na(z)]
+127	      data.frame(
+128	        Variabel = v, N = length(valid), Missing = sum(is.na(z)),
+129	        Mean = if (length(valid)) mean(valid) else NA_real_,
+130	        Median = if (length(valid)) median(valid) else NA_real_,
+131	        SD = if (length(valid) > 1) sd(valid) else NA_real_,
+132	        Min = if (length(valid)) min(valid) else NA_real_,
+133	        Max = if (length(valid)) max(valid) else NA_real_,
+134	        check.names = FALSE
+135	      )
+136	    }))
+137	  })
+138	
+139	  output$summary_stats <- renderDT({
+140	    datatable(stats_data(), rownames = FALSE, options = list(scrollX = TRUE, dom = "tip", pageLength = 10)) |>
+141	      formatRound(intersect(c("Mean", "Median", "SD", "Min", "Max"), names(stats_data())), digits = 3)
+142	  })
+143	
+144	  output$missing_table <- renderDT({
+145	    d <- dataset()
+146	    datatable(data.frame(Kolom = names(d), Nilai_Kosong = colSums(is.na(d)),
+147	                         Persentase = round(colMeans(is.na(d)) * 100, 2)),
+148	              options = list(pageLength = 8, dom = "tip"), rownames = FALSE)
+149	  })
